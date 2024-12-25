@@ -1,0 +1,44 @@
+---
+title: "Data Sources"
+format:
+  html:
+    code-fold: true
+    number-sections: true
+---
+
+For this project, I will use different data sets about Walmart sales. A brief introduction of these data sets are as follows. Notice that first three data sets are all from a Kaggle project, and you can access these data sets through this link:
+[Walmart Sales Forecast](https://www.kaggle.com/datasets/aslanahmedov/walmart-sales-forecast?select=train.csv)
+
+
+## Walmart Sales Data
+
+This data contains sales information of different stores and departments of Walmart from 2010 to 2012.
+
+![](./images/datascreen3){width=50%}
+
+The sales data is recorded on a weekly basis. Also, an boolean variable that shows whether the date is a holiday is included.
+
+## Store Type Data
+
+This is a simple data set that displays every store's type and size.
+
+![](./images/type){width=30%}
+
+There are totally three types of stores: A, B and C. In subsequent pages, you can find detailed visualizations and analysis about these three different types of stores.
+
+## Feature Data
+
+This data contains several important external features corresbonding to every store.
+
+![](./images/features)
+
+Temperature, fuel price, CPI index and unemployment rate of the place where each store is located are included in this data. Besides, Walmart runs several promotional markdown events throughout the year. However, since there are too many missing values for the markdown variables, I will drop these columns in further analysis.
+
+## Yahoo Finance Data
+
+In this project, I also gather the stock price of Walmart from Yahoo Finance using getSymbols() function. 
+
+![](./images/stock.png)
+
+You can visit the Yahoo Finance website here:
+[Yahoo Finance](https://finance.yahoo.com/)

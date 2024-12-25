@@ -1,0 +1,512 @@
+---
+title: Deep Learning for Time Series
+format:
+  html:
+    code-fold: true
+    number-sections: true
+jupyter: python3
+---
+
+![](./images/deeplearning.jpeg)
+
+In this page, I will use keras to fit three different neural network models, LSTM, RNN, and GRU, to predict the weekly sales of type A stores, which we have been already familiar after preceding tabs. The goal in this page is to compare the performances between these three deep learning models and also to find out whether these deep learning methods outperform traditional time series models, such as ARIMA and SARIMA.
+
+## Data preparation
+
+First of all, import relevant packages and read the csv file.
+
+```{python}
+import warnings
+warnings.filterwarnings("ignore")
+
+import pandas as pd
+import numpy as np
+from keras.models import Sequential
+from keras.layers import Dense, SimpleRNN,LSTM,GRU
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error
+import matplotlib.pyplot as plt
+import tensorflow as tf
+```
+
+```{python}
+df=pd.read_csv("A_sales.csv")
+df=df.iloc[:,[0,1]]
+X=np.array(df["avg"].values.astype('float32')).reshape(df.shape[0],1)
+print("Shape of X:",X.shape)
+```
+
+## Visualize the time series
+
+```{python}
+import plotly.io as pio
+pio.renderers.default = "plotly_mimetype+notebook_connected"
+import plotly.express as px
+
+# UTILITY
+def plotly_line_plot(t,y,title="Plot",x_label="t: time (weeks)",y_label="y(t): Weekly sales"):
+
+    # GENERATE PLOTLY FIGURE
+    fig = px.line(x=t[0],y=y[0], title=title, render_mode='SVG')  
+   
+    # ADD MORE
+    for i in range(1,len(y)):
+        if len(t[i])==1:
+            #print(t[i],y[i])
+            fig.add_scatter(x=t[i],y=y[i])
+        else:
+            fig.add_scatter(x=t[i],y=y[i], mode='lines')
+
+    fig.update_layout(
+        xaxis_title=x_label,
+        yaxis_title=y_label,
+        template="plotly_white",
+        showlegend=False
+    )
+    fig.show()
+
+    
+t=[*range(0,len(X))]
+plotly_line_plot([t],[X[:,0]],title="Weekly sales per week since 2010-02")
+```
+
+## Data splitting and re-formatting
+
+Use the first 80% data as training set and last 20% as test set.
+
+```{python}
+
+# Parameter split_percent defines the ratio of training examples
+def get_train_test(data, split_percent=0.8):
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    data = scaler.fit_transform(data).flatten()
+    n = len(data)
+    # Point for splitting data into train and test
+    split = int(n*split_percent)
+    train_data = data[range(split)]
+    test_data = data[split:]
+    return train_data, test_data, data
+
+train_data, test_data, data = get_train_test(X)
+
+print("training shape:",train_data.shape)
+print("test shape:",test_data.shape)
+```
+
+Visualize the training-test splitting:
+
+```{python}
+
+# SINGLE SERIES 
+t1=[*range(0,len(train_data))]
+t2=len(train_data)+np.array([*range(0,len(test_data))])
+plotly_line_plot([t1,t2],[train_data,test_data],title="Visualization for training-test splitting")
+```
+
+Now, it is important to re-format the data for keras to use. The 'time_steps' for this data is set as 4.
+
+```{python}
+# PREPARE THE INPUT X AND TARGET Y
+def get_XY(dat, time_steps,plot_data_partition=False):
+    global X_ind,X,Y_ind,Y #use for plotting later
+
+    # INDICES OF TARGET ARRAY
+    # Y_ind [  12   24   36   48 ..]; print(np.arange(1,12,1)); exit()
+    Y_ind = np.arange(time_steps, len(dat), time_steps); #print(Y_ind); exit()
+    Y = dat[Y_ind]
+
+    # PREPARE X
+    rows_x = len(Y)
+    X_ind=[*range(time_steps*rows_x)]
+    del X_ind[::time_steps] #if time_steps=10 remove every 10th entry
+    X = dat[X_ind]; 
+
+    #PLOT
+    if(plot_data_partition):
+        plt.figure(figsize=(15, 6), dpi=80)
+        plt.plot(Y_ind, Y,'o',X_ind, X,'-'); plt.show(); 
+
+    #RESHAPE INTO KERAS FORMAT
+    X1 = np.reshape(X, (rows_x, time_steps-1, 1))
+    # print([*X_ind]); print(X1); print(X1.shape,Y.shape); exit()
+
+    return X1, Y
+
+
+#PARTITION DATA
+p=5 # simpilar to AR(p) given time_steps data points, predict time_steps+1 point (make prediction one month in future)
+
+testX, testY = get_XY(test_data, p)
+trainX, trainY = get_XY(train_data, p)
+
+print("re-formatted test X shape:",testX.shape)
+print("re-formatted train X shape:",trainX.shape)
+print("re-formatted test Y shape:",testY.shape)
+print("re-formatted train Y shape:",trainY.shape)
+```
+
+Visualization of re-formatted data:
+
+```{python}
+## Build list 
+tmp1=[]; tmp2=[]; tmp3=[]; count=0
+for i in range(0,trainX.shape[0]):
+    # tmp1.append()
+    tmp1.append(count+np.array([*range(0,trainX[i,:,0].shape[0])]))
+    tmp1.append([count+trainX[i,:,0].shape[0]]); #print(([count+trainX[i,:,0].shape[0]]))
+    # tmp1.append([count+trainX[i,:,0].shape[0]+1])
+    tmp2.append(trainX[i,:,0])
+    tmp2.append([trainY[i]]); #print([trainY[i]])
+    # tmp2.append([trainY[i]])
+
+    count+=trainX[i,:,0].shape[0]+1
+
+plotly_line_plot(tmp1,tmp2,title="Weekly sales per week since 2010-02")
+```
+
+It is clear that this data has been already transformed to be utilized for keras LSTM.
+
+## Model training and comparison
+
+### LSTM model
+
+Customize the parameters and create the model:
+
+```{python}
+#USER PARAM
+recurrent_hidden_units=3
+epochs=60
+f_batch=0.2    #fraction used for batch size
+optimizer="RMSprop"
+validation_split=0.2
+```
+
+```{python}
+from tensorflow.keras import regularizers
+
+
+#CREATE MODEL
+model = Sequential()
+#COMMENT/UNCOMMENT TO USE RNN, LSTM,GRU
+model.add(LSTM(
+# model.add(SimpleRNN(
+# model.add(GRU(
+recurrent_hidden_units,
+return_sequences=False,
+input_shape=(trainX.shape[1],trainX.shape[2]), 
+# recurrent_dropout=0.8,
+recurrent_regularizer=regularizers.L2(1e-1),
+activation='tanh')
+          ) 
+     
+#NEED TO TAKE THE OUTPUT RNN AND CONVERT TO SCALAR 
+model.add(Dense(units=1, activation='linear'))
+
+# COMPILE THE MODEL 
+model.compile(optimizer=optimizer, loss=tf.keras.losses.MeanSquaredError())
+model.summary()
+```
+
+Train the LSTM model:
+
+```{python}
+import random
+random.seed(100)
+
+#TRAIN MODEL
+history = model.fit(
+trainX, trainY, 
+epochs=epochs, 
+batch_size=int(f_batch*trainX.shape[0]), 
+validation_split=validation_split,  # BEING "SLOPPY WITH CROSS VALIDATION" HERE FOR TIME-SERIES
+verbose=0)
+```
+
+Visualize the fitting history:
+
+```{python}
+#HISTORY PLOT
+epochs_steps = [*range(0, len(history.history['loss']))]
+
+# MAKE PREDICTIONS
+train_predict = model.predict(trainX).squeeze()
+test_predict = model.predict(testX).squeeze()
+
+#COMPUTE RMSE
+train_rmse = np.sqrt(mean_squared_error(trainY, train_predict))
+test_rmse = np.sqrt(mean_squared_error(testY, test_predict))
+
+print('Train MSE = %.5f RMSE = %.5f' % (train_rmse**2.0,train_rmse))
+print('Test MSE = %.5f RMSE = %.5f' % (test_rmse**2.0,test_rmse))    
+
+# PLOTLY PLOT
+plotly_line_plot([epochs_steps,epochs_steps],[history.history['loss'],history.history['val_loss']],title="Loss function during 60 epochs",x_label="training epochs",y_label="loss (MSE)")
+```
+
+Parity plot for the prediction:
+
+```{python}
+# GET DATA
+# GENERATE PLOTLY FIGURE
+
+fig = px.scatter(x=trainY,y=train_predict,height=600,width=800)
+fig.add_scatter(x=testY,y=test_predict,mode="markers")
+fig.add_scatter(x=trainY,y=trainY, mode='lines')
+
+fig.update_layout(
+    xaxis_title="y_pred",
+    yaxis_title="y_data",
+    template="plotly_white",
+    showlegend=False
+)
+
+fig.show()
+```
+
+This parity plot indicates that the LSTM model does not perform quite well on this data.
+
+Visualize the predictions:
+
+```{python}
+#| scrolled: true
+# PLOT THE RESULT
+def plot_result(trainY, testY, train_predict, test_predict):
+    plt.figure(figsize=(15, 6), dpi=80)
+    #ORIGINAL DATA
+    plt.plot(Y_ind, Y,'o', label='target')
+    plt.plot(X_ind, X,'.', label='training points');     
+    plt.plot(Y_ind, train_predict,'r.', label='prediction');    
+    plt.plot(Y_ind, train_predict,'-');    
+    plt.legend()
+    plt.xlabel('t: time (weeks)')
+    plt.ylabel('Weekly sales')
+    plt.title('Prediction plot')
+    plt.show()
+plot_result(trainY, testY, train_predict, test_predict)
+```
+
+The red points and green line displays the prediction of the model, while orange and blue points are original training points. This plot shows that the LSTM model dose not fit the data very well.
+
+### SimpleRNN model
+
+First create the model using keras:
+
+```{python}
+from tensorflow.keras import regularizers
+
+
+#CREATE MODEL
+model = Sequential()
+#COMMENT/UNCOMMENT TO USE RNN, LSTM,GRU
+# model.add(LSTM(
+model.add(SimpleRNN(
+# model.add(GRU(
+recurrent_hidden_units,
+return_sequences=False,
+input_shape=(trainX.shape[1],trainX.shape[2]), 
+# recurrent_dropout=0.8,
+recurrent_regularizer=regularizers.L2(1e-1),
+activation='tanh')
+          ) 
+     
+#NEED TO TAKE THE OUTPUT RNN AND CONVERT TO SCALAR 
+model.add(Dense(units=1, activation='linear'))
+
+# COMPILE THE MODEL 
+model.compile(optimizer=optimizer, loss=tf.keras.losses.MeanSquaredError())
+model.summary()
+```
+
+Training with this model:
+
+```{python}
+
+#TRAIN MODEL
+history = model.fit(
+trainX, trainY, 
+epochs=epochs, 
+batch_size=int(f_batch*trainX.shape[0]), 
+validation_split=validation_split,  # BEING "SLOPPY WITH CROSS VALIDATION" HERE FOR TIME-SERIES
+verbose=0)
+```
+
+Visualize the training history:
+
+```{python}
+#| scrolled: true
+#HISTORY PLOT
+epochs_steps = [*range(0, len(history.history['loss']))]
+
+# MAKE PREDICTIONS
+train_predict = model.predict(trainX).squeeze()
+test_predict = model.predict(testX).squeeze()
+
+#COMPUTE RMSE
+train_rmse = np.sqrt(mean_squared_error(trainY, train_predict))
+test_rmse = np.sqrt(mean_squared_error(testY, test_predict))
+
+print('Train MSE = %.5f RMSE = %.5f' % (train_rmse**2.0,train_rmse))
+print('Test MSE = %.5f RMSE = %.5f' % (test_rmse**2.0,test_rmse))    
+
+# PLOTLY PLOT
+plotly_line_plot([epochs_steps,epochs_steps],[history.history['loss'],history.history['val_loss']],title="Loss function during 60 epochs",x_label="training epochs",y_label="loss (MSE)")
+```
+
+Parity plot for the prediction:
+
+```{python}
+# GET DATA
+# GENERATE PLOTLY FIGURE
+
+fig = px.scatter(x=trainY,y=train_predict,height=600,width=800)
+fig.add_scatter(x=testY,y=test_predict,mode="markers")
+fig.add_scatter(x=trainY,y=trainY, mode='lines')
+
+fig.update_layout(
+    xaxis_title="y_pred",
+    yaxis_title="y_data",
+    template="plotly_white",
+    showlegend=False
+)
+
+fig.show()
+```
+
+Visualize the predictions:
+
+```{python}
+#| scrolled: true
+# PLOT THE RESULT
+def plot_result(trainY, testY, train_predict, test_predict):
+    plt.figure(figsize=(15, 6), dpi=80)
+    #ORIGINAL DATA
+    plt.plot(Y_ind, Y,'o', label='target')
+    plt.plot(X_ind, X,'.', label='training points');     
+    plt.plot(Y_ind, train_predict,'r.', label='prediction');    
+    plt.plot(Y_ind, train_predict,'-');    
+    plt.legend()
+    plt.xlabel('t: time (weeks)')
+    plt.ylabel('Weekly sales')
+    plt.title('Prediction plot')
+    plt.show()
+plot_result(trainY, testY, train_predict, test_predict)
+```
+
+It is noticed that this SimpleRNN model does not perform perfectly either. It captures some of the data pattern but does not fit the crest during the end of every year well.
+
+### GRU model
+
+Finally, let's consider a GRU model.
+
+```{python}
+from tensorflow.keras import regularizers
+
+
+#CREATE MODEL
+model = Sequential()
+#COMMENT/UNCOMMENT TO USE RNN, LSTM,GRU
+# model.add(LSTM(
+# model.add(SimpleRNN(
+model.add(GRU(
+recurrent_hidden_units,
+return_sequences=False,
+input_shape=(trainX.shape[1],trainX.shape[2]), 
+# recurrent_dropout=0.8,
+recurrent_regularizer=regularizers.L2(1e-1),
+activation='tanh')
+          ) 
+     
+#NEED TO TAKE THE OUTPUT RNN AND CONVERT TO SCALAR 
+model.add(Dense(units=1, activation='linear'))
+
+# COMPILE THE MODEL 
+model.compile(optimizer=optimizer, loss=tf.keras.losses.MeanSquaredError())
+model.summary()
+```
+
+Training the model:
+
+```{python}
+
+#TRAIN MODEL
+history = model.fit(
+trainX, trainY, 
+epochs=epochs, 
+batch_size=int(f_batch*trainX.shape[0]), 
+validation_split=validation_split,  # BEING "SLOPPY WITH CROSS VALIDATION" HERE FOR TIME-SERIES
+verbose=0)
+```
+
+Visualize the fitting history:
+
+```{python}
+#| scrolled: true
+#HISTORY PLOT
+epochs_steps = [*range(0, len(history.history['loss']))]
+
+# MAKE PREDICTIONS
+train_predict = model.predict(trainX).squeeze()
+test_predict = model.predict(testX).squeeze()
+
+#COMPUTE RMSE
+train_rmse = np.sqrt(mean_squared_error(trainY, train_predict))
+test_rmse = np.sqrt(mean_squared_error(testY, test_predict))
+
+print('Train MSE = %.5f RMSE = %.5f' % (train_rmse**2.0,train_rmse))
+print('Test MSE = %.5f RMSE = %.5f' % (test_rmse**2.0,test_rmse))    
+
+# PLOTLY PLOT
+plotly_line_plot([epochs_steps,epochs_steps],[history.history['loss'],history.history['val_loss']],title="Loss function during 60 epochs",x_label="training epochs",y_label="loss (MSE)")
+
+```
+
+Parity plot for the prediction:
+
+```{python}
+# GET DATA
+# GENERATE PLOTLY FIGURE
+
+fig = px.scatter(x=trainY,y=train_predict,height=600,width=800)
+fig.add_scatter(x=testY,y=test_predict,mode="markers")
+fig.add_scatter(x=trainY,y=trainY, mode='lines')
+
+fig.update_layout(
+    xaxis_title="y_pred",
+    yaxis_title="y_data",
+    template="plotly_white",
+    showlegend=False
+)
+
+fig.show()
+```
+
+Visualize the prediction for the weekly sales data:
+
+```{python}
+#| scrolled: true
+# PLOT THE RESULT
+def plot_result(trainY, testY, train_predict, test_predict):
+    plt.figure(figsize=(15, 6), dpi=80)
+    #ORIGINAL DATA
+    plt.plot(Y_ind, Y,'o', label='target')
+    plt.plot(X_ind, X,'.', label='training points');     
+    plt.plot(Y_ind, train_predict,'r.', label='prediction');    
+    plt.plot(Y_ind, train_predict,'-');    
+    plt.legend()
+    plt.xlabel('t: time (weeks)')
+    plt.ylabel('Weekly sales')
+    plt.title('Prediction plot')
+    plt.show()
+plot_result(trainY, testY, train_predict, test_predict)
+```
+
+According to the plots above, this GRU model generates relatively better predictions for this weekly sales data. However, it is still not very satisfactory.
+
+After fitting these three deep learning models on this data, we can notice that all these three achieve relatively small RMSE on the test set after training for 60 epochs. Nevertheless, the parity plot and prediction plot show that these three methodologies do not fit the data perfectly. Besides, since I have applied L2 regularization for all three models, we do not meet overfitting problems. The models tend to have slightly higher bias but lower variance due to the regularization. Additionally, the test set include weekly sales data for nearly 7 months, and these three models all reach a small RMSE on the test data, which suggests that these deep learning models are able to predict the weekly sales of near future with a moderately good accuracy.
+
+## Conclusion
+
+In the preceding tabs, we have discussed about using traditional time series models to forecast the Walmart weekly sales. Since we have also tried deep learning methodologies to do the same task in this page, we are able to draw some conclusions on the performances of different models for this data. Based on the RMSE on test data, these three deep learning methods obviously outperform simple time series model, like ARMA and ARIMA, which could not capture the seasonality within this weekly sales data. However, SARIMA and more complicated SARIMAX models fit the seasonal components quite well and perform much better than other methods that we have tried, including the neural networks. 
+
+One possible reason why deep learning methods do not perform so well is the small scale of this data. As mentioned before, this data only contains weekly sales of Walmart stores from 2010 to 2012. Since the seasonal period is one year, the data has just three periods. It is known that deep learning models usually rely on data with relatively large size. Therefore, these models might struggle with this small sample of data. Specifically, the weekly sales by the end of each year always reach the crest due to Thanksgiving and Christmas. However, these extremely high sales data only appears in four or five weeks, which is too short for the deep learning method, like LSTM, to learn the special data pattern, because the time steps of this model itself is four weeks.
+

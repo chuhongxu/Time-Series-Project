@@ -1,0 +1,303 @@
+---
+title: "Financial Time Series Models (ARCH/GARCH)"
+format:
+  html:
+    code-fold: true
+    number-sections: true
+---
+
+![](./images/stock.jpeg)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+library(flipbookr)
+library(tidyverse)
+library(ggplot2)
+library(forecast)
+library(astsa) 
+library(xts)
+library(tseries)
+library(fpp2)
+library(fma)
+library(lubridate)
+library(tidyverse)
+library(TSstudio)
+library(quantmod)
+library(tidyquant)
+library(plotly)
+library(reshape2)
+library(tseries)
+library(TTR)
+```
+
+Unlike preceding tabs, in this page I will mainly focus on using Autoregressive Conditional Heteroskedasticity model (ARCH), a useful financial time series model, to study the stock price of Walmart since 2010, rather than forecasting the weekly sales as usual. Financial time series data refers to the data collected over time and indicates the changes of financial variables, including stock prices, interest rates, and other financial indicators. A special characteristic of financial time series is that there often exists volatility in the data, and the volatility tends to cluster over time. Under this circumstance, ARCH and GARCH models can be ideal to study the financial time series, since they can take the volatility into consideration. 
+
+In this project, I will first train an ARIMA model, and then utilize ARCH or GARCH to fit the residuals of ARIMA model. Thus, the final model for studying this stock price data can be an ARIMA+ARCH/ARIMA+GARCH model.
+
+## Data gathering and visualization
+
+First, get the stock price data of Walmart from yahoo.
+
+```{r}
+getSymbols("WMT", from="2010-01-01", to="2023-05-02", src="yahoo")
+```
+
+```{r}
+head(WMT)
+```
+
+Here is candlestick plot showing the stock price of Walmart since 2010:
+
+```{r}
+chartSeries(WMT, theme = chartTheme("white"),
+            bar.type = "hlc",
+            up.col = "green", 
+            dn.col = "red")
+```
+
+According to this plot, we first notice the upward trend of this stock price within the past decade. Also, this plot shows increasing volatility in the data over time. 
+
+Following plot will apply the log function and a first order differencing to the data, which makes it much easier to notice the change in volatility.
+
+```{r}
+WMT.close<- Ad(WMT)
+
+returns = diff(log(WMT.close))
+
+chartSeries(returns, theme="white")
+```
+
+We can clearly see that volatility has greatly increased by years, especially at around 2020. Therefore, an ARCH or GARCH model will be appropriate for studying this data. Now let's first look at the ACF/PACF plot to check if an ARIMA model is necessary before fitting an ARCH.
+
+## ACF/PACF plots
+
+```{r}
+ggAcf(log(WMT.close))+ggtitle("ACF plot of log price")
+```
+
+From this plot, it is evident that a differencing must be applied to this stock price data.
+
+```{r}
+ggAcf(returns)+ggtitle("ACF plot of log price with differencing")
+```
+
+```{r}
+ggPacf(returns)+ggtitle("PACF plot of log price with differencing")
+```
+
+```{r}
+ggAcf(abs(returns))+ggtitle("ACF plot of absolute log price with differencing")
+```
+
+```{r}
+ggAcf(returns^2)+ggtitle("ACF plot of squared log price with differencing")
+```
+
+These plots above shows that an ARIMA model is needed for fitting this stock price data. 
+
+## ARIMA model fitting
+
+Next, I will try to fit a series of ARIMA models with different parameters and determine the best model based on AIC, BIC and AICc values.
+
+```{r}
+log.WMT=log(WMT.close)
+i=1
+temp= data.frame()
+ls=matrix(rep(NA,6*18),nrow=18) 
+
+
+for (p in 0:2)
+{
+  for(q in 0:2)
+  {
+    for(d in 0:1)
+    {
+      
+      if(p+d+q<=8)
+      {
+        
+        model<- Arima(log.WMT,order=c(p,d,q),include.drift=TRUE) 
+        ls[i,]= c(p,d,q,model$aic,model$bic,model$aicc)
+        i=i+1
+      }
+    }
+  }
+}
+
+temp= as.data.frame(ls)
+names(temp)= c("p","d","q","AIC","BIC","AICc")
+
+#temp
+knitr::kable(temp)
+```
+
+Model with minimum AIC:
+
+```{r}
+temp[which.min(temp$AIC),]
+```
+Model with minimum BIC:
+
+```{r}
+temp[which.min(temp$BIC),]
+```
+Model with minimum AICc:
+
+```{r}
+temp[which.min(temp$AICc),]
+```
+
+The results shows that ARIMA(2,0,0) has minimum AIC and AICc values, while ARIMA(1,1,0) has the minimum BIC value. Now compare the two models using model diagnostics.
+
+1) ARIMA(1,1,0) model:
+
+```{r}
+sarima(log.WMT,1,1,0)
+```
+
+2) ARIMA(2,0,0) model:
+
+```{r}
+sarima(log.WMT,2,0,0)
+```
+
+According to model diagnostics of these two models, we can see that both models perform relatively good. The residuals of both models have good normality and coefficients in these two models are all significant. However, from the Ljung-Box test, ARIMA(1,1,0) has more values greater than 0.05, which means the residuals of this model are more likely to be independent. Thus, I will choose ARIMA(1,1,0) as the optimal model.
+
+The squared residuals of this model is as follows:
+
+```{r}
+arima1=arima(log.WMT,order=c(1,1,0))
+
+res.arima1=arima1$res
+squared.res.arima1=res.arima1^2
+plot(squared.res.arima1,main='Squared Residuals')
+```
+
+Obviously, an ARCH model is needed for fitting the residuals of ARIMA model.
+
+## ARCH model fitting
+
+In following part, I will sequentially fit ARCH models with different parameters and determine the best one based on AIC value.
+
+```{r}
+ARCH <- list()
+i=1
+for (p in 1:10) {
+ARCH[[i]] <- garch(res.arima1,order=c(0,p),trace=F)
+i=i+1
+} 
+
+## get AIC values for model evaluation
+ARCH_AIC <- sapply(ARCH, AIC) 
+
+```
+
+Minimum AIC value:
+
+```{r,echo=FALSE}
+min(ARCH_AIC)
+```
+
+The parameter of model with minimum AIC value:
+
+```{r,echo=FALSE}
+which(ARCH_AIC == min(ARCH_AIC))
+```
+
+This means ARCH(8) fits the residual best. Have a look at the summary of this model.
+
+```{r}
+arch8=garch(res.arima1,order=c(0,8),trace=F)
+summary(arch8)
+```
+
+The p-value of Box-Ljung test is much greater than 0.05, suggesting that this model has adequately represents the residual. Also, most coefficients within this model are significant except a5 and a6.
+
+## Model diagnostics and conclusions
+
+Finally, have a look at the model diagnostics of the whole ARIMA(1,1,0)+ARCH(8) for this stock price data to check the model performance.
+
+```{r,warning=FALSE}
+checkresiduals(arch8)
+```
+
+```{r}
+qqnorm(arch8$residuals, pch=1)
+qqline(arch8$residuals, col="red", lwd=2)
+```
+
+```{r}
+Box.test(arch8$residuals, type="Ljung-Box")
+```
+
+These plots and test all show strong signals that the model performs quite well. From the residual plot, we can see relatively constant mean and variance. Next, the ACF plot shows good stationarity within the residuals. Besides, the distribution of the residuals and QQ-plot indicate that the residuals almost follow a normal distribution. Finally, the p-value of Box-Ljung test is much greater than 0.05, meaning that the residuals are independent.
+
+## Model equations
+
+The equations of the ARIMA(1,1,0)+ARCH(8) model can be written as follows:
+
+$$
+(1-\phi_1B)(1-B)x_t=y_t+\delta 
+$$
+
+$$
+y_t=\sigma_t \epsilon_t 
+$$
+
+$$
+\sigma^2=a_0+a_1y_{t-1}^2+a_2y_{t-2}^2+a_3y_{t-3}^2+\cdots+a_8y_{t-8}^2
+$$
+
+In these equations, $\phi_1$ eqauls to -0.0561. The coefficients of the third equations are listed below:
+
+```{r, echo=FALSE}
+ARCH[8]
+```
+
+## Stock price and sales
+
+In this section, I will compare the visualizations of stock price and weekly sales, in order to figure out if these two time series have something in common. The observation time is from 2010-02 to 2012-10.
+
+```{r,echo=FALSE}
+getSymbols("WMT", from="2010-02-01", to="2012-10-27", src="yahoo")
+WMT.close<- Ad(WMT)
+```
+
+```{r}
+chartSeries(WMT, theme = chartTheme("white"),
+            bar.type = "hlc",
+            up.col = "green", 
+            dn.col = "red")
+```
+
+```{r,echo=FALSE}
+# ts_decomp=decompose(WMT.close, "additive")
+# autoplot(ts_decomp)
+```
+
+```{r}
+gglagplot(WMT.close, do.lines=FALSE, lags=1)+xlab("Lag 1")+ylab("Yi")+ggtitle("Lag Plot for Stock Price")
+```
+
+The candlestick plot and lag plot indicate that the stock price of Walmart from 2010 to 2012 has a obvious upward trend. However, the "decompose" function failed to decompose this time series into different components, suggesting that seasonality does not exist in this time series.
+
+```{r}
+walmart=read.csv("./data/Walmart_sales_data.csv")
+
+bytime=group_by(walmart,Date)
+sales=summarise(bytime,avg = mean(Weekly_Sales))
+sales$Date=as.Date(sales$Date)
+
+
+ggplot(sales,aes(x=Date,y=avg))+
+  geom_line()+
+  labs(
+    x = "Time",
+    y = "Weekly sales"
+  )+
+  ggtitle("Average Weekly sales from 2010 to 2012")
+
+```
+
+This plot above, which we are already very familiar, displays the average weekly sales of all the stores from 2010 to 2012. This time series of weekly sales has significant seasonal components rather than trend, which is absolutely opposite to the stock price data. Therefore, we can not observe any relationship between the stock price of Walmart and the weekly sales of given stores.
+

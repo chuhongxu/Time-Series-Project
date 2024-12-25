@@ -1,0 +1,44 @@
+---
+title: "Conclusions"
+format:
+  html:
+    code-fold: true
+    number-sections: true
+---
+
+Let's revisit this diagram of the "big picture".
+
+![](./images/flow.png)
+
+In this project, I have utilized many different models, ranging from basic time series models like ARIMA, to more complex ones, such as SARIMAX and neural networks, to capture the important patterns of the Walmart weekly sales data, and try to forecast using this data. As mentioned in the "Discussion" tab, factors that contribute to sales forecasting can be divided into two categories: internal and external ones. First and foremost, the historical sales, one of the internal factors, has been studied throughout this whole project with many different time series models. Secondly, I have compared the data of different types of stores to figure out how the store size affects the weekly sales. For the external factors, I mainly focused on CPI, fuel price, unemployment rate and temperature, then established an aggregated model that can forecast based on weekly sales data as well as these features. As a supplementary to this project, I have also studied the stock price of Walmart, and tried to find out whether there exists relationship between the stock price and weekly sales.
+
+## Historical Weekly Sales
+
+![](./images/historical.png){width=80%}
+
+The historical weekly sales from 2010 to 2012 is the core data in this project. According to the time series analysis, weekly sales of these given Walmart stores have obvious seasonality, and the seasonal period is one year. Specifically, the weekly sales reaches the crest by the end of each year, due to Thanksgiving and Christmas. Also, it is found that the weekly sales tends to be higher during holidays, which naturally makes sense.
+
+## Store Type (Store Size)
+
+![](./images/types.png){width=80%}
+
+These 45 stores included in the data are categorized into 3 types based on the size. Type A stores have largest size while type C stores have smallest size. It is evident that sales and store size are positively correlated. However, the time series model has found an interesting fact that although the absolute sales values of different types of stores are very different, the hidden patterns and seasonal effects are actually quite similar. Thus, we can then infer that the marketing strategies of different stores could be almost the same, and the difference on weekly sales is mainly due to the numbers of consumers and amount of products.
+
+## External Factors
+
+According to the model results in this study, we can conclude that CPI index, unemployment rate, and fuel price are highly related to weekly sales. Therefore, when we try to do a sales forecasting, it is appropriate to incorporate these three factors about economic environment into the time series analysis of the historical sales data. By contrast, temperature is not significant in the model, indicating that this variable do not contribute to sales forecasting. Perhaps it is because that many different products that highly relate to the temperature are sold in the same store, and the influences by temperature cancel out. For example, a big Walmart store may sell gloves and overcoats which are popular during winter, and also surfboards that appear more frequently in summer. When taking average of the sales for these products, the effect by temperature will cancel out. Therefore, if we want to further study the relationship between temperature and sales, it is ideal to use sales data of specific products rather than total sales of a store.
+
+![](./images/forecast.png){width=80%}
+
+The blue line in this plot above displays the forecast of weekly sales using a model that takes all the external factors into consideration. The Walmart data set only contains weekly sales until October 2012. This model forecasts that the weekly sales will first sharply increase in November. Then after a brief dip, sales will continue to increase, peaking at the end of December. Finally, the sales will plunge to the level before November.
+
+## Stock Price
+
+![](./images/stock2.png){width=80%}
+
+The stock price of Walmart from 2010 to 2012 has a obvious upward trend. However, seasonality does not exist in this time series. Oppositely, the time series of weekly sales within the same observation time period has significant seasonal components rather than trend. Therefore, we can not observe any relationship between the stock price of Walmart and the weekly sales of given stores.
+
+## Limitations and Prospects
+
+Although I have already established a series of models with relatively good performance to forecast the weekly sales, there is still quite a lot to improve. One of the biggest limitations of this study is the small scale of data. The Walmart sales data that used in this project only contains 143 rows of data with two and a half periods. Many models might struggle with this small data. For further study of time series or sales forecasting, it is appropriate to gather a larger data set to find out whether the models will perform better and more stable. Additionally, it could be a good approach in the future to study more recent data and analyze the impact of COVID-19 pandemic on the sales.
+
